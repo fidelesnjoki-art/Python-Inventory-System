@@ -1,71 +1,136 @@
 from flask import Flask, request, jsonify
-from api import get_product_by_barcode
+import requests
 from models import db, InventoryItem
 
 app = Flask(__name__)
+# CORS(app)
+
+# Database config
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///inventory.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
 
+# Create tables
 with app.app_context():
     db.create_all()
 
 
-@app.route('/items', methods=['POST'])
-def add_item():
-    data = request.get_json()
-    barcode = data.get('barcode')
-    product = get_product_by_barcode(barcode)
-    if not product:
-        return jsonify({"error": "Product not found"}), 404
+# Helper: Get product from OpenFoodFacts
+def get_product_by_barcode(barcode):
+    url = f"https://world.openfoodfacts.org/api/v0/product/{barcode}.json"
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json"
+    }
 
-    new_item = InventoryItem(
-        name=product.get('name'),
-        barcode=product.get('barcode'),
-        description=product.get('description'),
-        brand=product.get('brand'),
-        image=product.get('image')
-    )
-    db.session.add(new_item)
-    db.session.commit()
-    return jsonify({"message": "Item added"}), 201
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get('status') == 1:
+                product = data.get('product', {})
+                return {
+                    "barcode": barcode,
+                    "name": product.get('product_name', 'Unknown'),
+                    "brand": product.get('brands', 'Unknown'),
+                    "description": product.get('generic_name', ''),
+                    "image": product.get('image_url', '')
+                }
+    except requests.RequestException:
+        return None
 
+    return None
+
+
+# 1. GET all items from our DB
 @app.route('/items', methods=['GET'])
 def get_items():
+    items = InventoryItem.query.all()
+    return jsonify([item.to_dict() for item in items])
+
+
+# 2. GET search product info from API only
+@app.route('/items/search', methods=['GET'])
+def search_item():
     barcode = request.args.get('barcode')
     if not barcode:
-        return jsonify({"error": "please provide a barcode"}), 400
+        return jsonify({"error": "Barcode is required"}), 400
+    
     product = get_product_by_barcode(barcode)
     if product:
         return jsonify(product)
-    else:
-        return jsonify({"error": "Product not found"}), 404
+    return jsonify({"error": "Product not found"}), 404
+
+
+# 3. POST: Add new item OR increase quantity if barcode exists
+@app.route('/items', methods=['POST'])
+def add_item():
+    data = request.json
+    barcode = data.get('barcode')
+    quantity = data.get('quantity', 1)
     
-   
+    if not barcode:
+        return jsonify({"error": "Barcode is required"}), 400
     
+    # Check if item already exists
+    existing = InventoryItem.query.filter_by(barcode=barcode).first()
+    if existing:
+        existing.quantity += quantity  # Add to stock
+        db.session.commit()
+        return jsonify({
+            "status": "updated", 
+            "message": f"Quantity now {existing.quantity}", 
+            "data": existing.to_dict()
+        }), 200
+    
+    # If new item, fetch from API
+    product = get_product_by_barcode(barcode)
+    if not product:
+        return jsonify({"error": "Product not found in OpenFoodFacts"}), 404
+    
+    # Create new item
+    new_item = InventoryItem(
+        barcode=product['barcode'],
+        name=product['name'],
+        brand=product['brand'],
+        description=product['description'],
+        image=product['image'],
+        quantity=quantity
+    )
+    db.session.add(new_item)
+    db.session.commit()
+    
+    return jsonify({
+        "status": "success", 
+        "message": "New item added", 
+        "data": new_item.to_dict()
+    }), 201
+
+
+# 4. PUT: Manually set quantity / Sell item
 @app.route('/items/<int:id>', methods=['PUT'])
 def update_item(id):
-    item = InventoryItem.query.get_or_404(id)
-    data = request.get_json()
-    item.quantity = data.get('quantity', item.quantity)
+    data = request.json
+    item = InventoryItem.query.get(id)
+    if not item:
+        return jsonify({"error": "Item not found"}), 404
+    
+    item.quantity = data.get('quantity', item.quantity)  # Set to new quantity
     db.session.commit()
-    return jsonify({"message": "Item updated"})
+    return jsonify({"status": "success", "message": "Quantity updated", "data": item.to_dict()}), 200
 
+
+# 5. DELETE: Remove item completely
 @app.route('/items/<int:id>', methods=['DELETE'])
 def delete_item(id):
-    item = InventoryItem.query.get_or_404(id)
+    item = InventoryItem.query.get(id)
+    if not item:
+        return jsonify({"error": "Item not found"}), 404
+    
     db.session.delete(item)
     db.session.commit()
-    return jsonify({"message": "Item deleted"})
-
-@app.route('/items', methods=['GET'])
-def get_all_items():
-     items = InventoryItem.query.all()
-     return jsonify([item.to_dict() for item in InventoryItem.query.all()])
-
+    return jsonify({"status": "success", "message": "Item deleted"}), 200
 
 
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-    app.run(debug=True)
+    app.run(debug=True, port=5001)

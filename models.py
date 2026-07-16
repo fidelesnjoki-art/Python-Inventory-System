@@ -7,6 +7,7 @@ class InventoryItem(db.Model):
     barcode = db.Column(db.String(50), unique = True)
     description = db.Column(db.String(200))
     brand = db.Column(db.String(100))
+    quantity = db.Column(db.Integer, default=0)
     image = db.Column(db.String(200))
 
     def to_dict(self):
@@ -16,5 +17,6 @@ class InventoryItem(db.Model):
             "barcode": self.barcode,
             "description": self.description,
             "brand": self.brand,
+            "quantity": self.quantity,
             "image": self.image
         }
