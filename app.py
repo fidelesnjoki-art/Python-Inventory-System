@@ -3,19 +3,14 @@ import requests
 from models import db, InventoryItem
 
 app = Flask(__name__)
-# CORS(app)
 
-# Database config
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///inventory.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
 
-# Create tables
 with app.app_context():
     db.create_all()
 
-
-# Helper: Get product from OpenFoodFacts
 def get_product_by_barcode(barcode):
     url = f"https://world.openfoodfacts.org/api/v0/product/{barcode}.json"
     headers = {
@@ -41,15 +36,11 @@ def get_product_by_barcode(barcode):
 
     return None
 
-
-# 1. GET all items from our DB
 @app.route('/items', methods=['GET'])
 def get_items():
     items = InventoryItem.query.all()
     return jsonify([item.to_dict() for item in items])
 
-
-# 2. GET search product info from API only
 @app.route('/items/search', methods=['GET'])
 def search_item():
     barcode = request.args.get('barcode')
@@ -62,7 +53,6 @@ def search_item():
     return jsonify({"error": "Product not found"}), 404
 
 
-# 3. POST: Add new item OR increase quantity if barcode exists
 @app.route('/items', methods=['POST'])
 def add_item():
     data = request.json
@@ -72,7 +62,6 @@ def add_item():
     if not barcode:
         return jsonify({"error": "Barcode is required"}), 400
     
-    # Check if item already exists
     existing = InventoryItem.query.filter_by(barcode=barcode).first()
     if existing:
         existing.quantity += quantity  # Add to stock
@@ -83,12 +72,10 @@ def add_item():
             "data": existing.to_dict()
         }), 200
     
-    # If new item, fetch from API
     product = get_product_by_barcode(barcode)
     if not product:
         return jsonify({"error": "Product not found in OpenFoodFacts"}), 404
     
-    # Create new item
     new_item = InventoryItem(
         barcode=product['barcode'],
         name=product['name'],
@@ -106,8 +93,6 @@ def add_item():
         "data": new_item.to_dict()
     }), 201
 
-
-# 4. PUT: Manually set quantity / Sell item
 @app.route('/items/<int:id>', methods=['PUT'])
 def update_item(id):
     data = request.json
@@ -115,12 +100,11 @@ def update_item(id):
     if not item:
         return jsonify({"error": "Item not found"}), 404
     
-    item.quantity = data.get('quantity', item.quantity)  # Set to new quantity
+    item.quantity = data.get('quantity', item.quantity) 
     db.session.commit()
     return jsonify({"status": "success", "message": "Quantity updated", "data": item.to_dict()}), 200
 
 
-# 5. DELETE: Remove item completely
 @app.route('/items/<int:id>', methods=['DELETE'])
 def delete_item(id):
     item = InventoryItem.query.get(id)
