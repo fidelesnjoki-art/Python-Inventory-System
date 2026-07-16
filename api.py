@@ -1,26 +1,23 @@
 import requests
 
 def get_product_by_barcode(barcode):
-    """
-    Fetch product details from OpenFoodFacts API
-    """
     url = f"https://world.openfoodfacts.org/api/v0/product/{barcode}.json"
     
     headers = {
-        'User-Agent': 'InventoryApp - Flask - Student Project'  # Tells API who we are
+        'User-Agent': 'InventoryApp - Flask - Student Project' 
     }
     
     try:
         response = requests.get(url, headers=headers, timeout=10)
-        print("Status Code:", response.status_code)  # For debugging
-        print("Raw Response:", response.text[:200])  # First 200 chars
+        print("Status Code:", response.status_code) 
+        print("Raw Response:", response.text[:200])  
         
         if response.status_code != 200:
             return None
 
         data = response.json()
 
-        if data.get('status') == 1:  # Product found
+        if data.get('status') == 1:  
             product = data['product']
             return {
                 "barcode": barcode,
@@ -30,17 +27,16 @@ def get_product_by_barcode(barcode):
                 "image": product.get('image_front_url', '')
             }
         else:
-            return None  # Product not in database
+            return None 
             
     except requests.exceptions.RequestException as e:
         print("Network Error:", e)
         return None
-    except ValueError as e:  # Catches "Expecting value" JSON error
+    except ValueError as e:  
         print("JSON Error:", e)
         return None
 
 
-# Test it alone
 if __name__ == "__main__":
-    result = get_product_by_barcode("3017620422003")  # Nutella
+    result = get_product_by_barcode("3017620422003")  
     print(result)
